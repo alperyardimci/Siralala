@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+server/siralala.db
+server/server.log
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.build/
+
