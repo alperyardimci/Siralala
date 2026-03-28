@@ -207,6 +207,33 @@ app.get('/api/groups', (req, res) => {
   res.json(groups);
 });
 
+app.get('/api/groups/:groupId/questions', (req, res) => {
+  const user = getUser(req.query.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const questions = db.prepare(`
+    SELECT sq.*, u.display_name as creator_name, g.name as group_name
+    FROM shared_questions sq
+    JOIN groups_ g ON g.id = sq.group_id
+    JOIN users u ON u.id = sq.creator_id
+    WHERE sq.group_id = ?
+    ORDER BY sq.created_at DESC
+  `).all(req.params.groupId);
+
+  for (const q of questions) {
+    q.items = db.prepare('SELECT id, name, image_data, sort_order FROM shared_question_items WHERE question_id = ? ORDER BY sort_order').all(q.id);
+    q.completion_count = db.prepare('SELECT COUNT(*) as c FROM rankings WHERE question_id = ?').get(q.id).c;
+    q.user_ranked = db.prepare('SELECT COUNT(*) as c FROM rankings WHERE question_id = ? AND user_id = ?').get(q.id, user.id).c > 0;
+  }
+
+  res.json(questions);
+});
+
+app.delete('/api/groups/:groupId', (req, res) => {
+  db.prepare('DELETE FROM groups_ WHERE id = ?').run(req.params.groupId);
+  res.json({ success: true });
+});
+
 app.post('/api/groups/:groupId/members', (req, res) => {
   const { username } = req.body;
   const member = getUser(username);

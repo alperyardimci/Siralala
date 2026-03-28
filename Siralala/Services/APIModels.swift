@@ -51,6 +51,32 @@ struct APISharedQuestion: Codable, Identifiable {
     }
 }
 
+struct APIGroupQuestion: Codable, Identifiable {
+    let id: Int
+    let text: String
+    let poolName: String
+    let itemCount: Int
+    let creatorName: String
+    let groupName: String
+    var items: [APIQuestionItem]
+    var completionCount: Int
+    var userRanked: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, text, items
+        case poolName = "pool_name"
+        case itemCount = "item_count"
+        case creatorName = "creator_name"
+        case groupName = "group_name"
+        case completionCount = "completion_count"
+        case userRanked = "user_ranked"
+    }
+
+    var asSharedQuestion: APISharedQuestion {
+        APISharedQuestion(id: id, text: text, poolName: poolName, itemCount: itemCount, creatorName: creatorName, groupName: groupName, items: items, completionCount: completionCount)
+    }
+}
+
 struct APIQuestionItem: Codable, Identifiable {
     let id: Int
     let name: String

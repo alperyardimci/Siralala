@@ -6,6 +6,7 @@ struct CreateGroupView: View {
     @State private var friends: [APIFriend] = []
     @State private var selectedFriends: Set<Int> = []
     @State private var isCreating = false
+    @State private var showAddFriend = false
 
     var onCreated: (() -> Void)?
 
@@ -18,8 +19,24 @@ struct CreateGroupView: View {
 
                 Section("Arkadaşlarını Seç") {
                     if friends.isEmpty {
-                        Text("Önce arkadaş ekle")
-                            .foregroundStyle(.secondary)
+                        VStack(spacing: 12) {
+                            Text("Gruba eklemek için arkadaşın olmalı")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                showAddFriend = true
+                            } label: {
+                                Label("Arkadaş Ekle", systemImage: "person.badge.plus")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(.orange.gradient, in: RoundedRectangle(cornerRadius: 10))
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
                     } else {
                         ForEach(friends) { friend in
                             Button {
@@ -43,6 +60,14 @@ struct CreateGroupView: View {
                                 }
                             }
                         }
+
+                        Button {
+                            showAddFriend = true
+                        } label: {
+                            Label("Başka Arkadaş Ekle", systemImage: "plus.circle")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
@@ -62,6 +87,20 @@ struct CreateGroupView: View {
             }
             .task {
                 friends = (try? await APIService.shared.getFriends()) ?? []
+            }
+            .sheet(isPresented: $showAddFriend) {
+                NavigationStack {
+                    FriendsView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Bitti") {
+                                    showAddFriend = false
+                                    Task { friends = (try? await APIService.shared.getFriends()) ?? [] }
+                                }
+                                .fontWeight(.semibold)
+                            }
+                        }
+                }
             }
         }
     }

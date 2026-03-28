@@ -103,6 +103,14 @@ final class APIService {
         return try await request("GET", path: "/groups?username=\(username.urlEncoded)")
     }
 
+    func deleteGroup(id: Int) async throws {
+        try await requestVoid("DELETE", path: "/groups/\(id)")
+    }
+
+    func getGroupQuestions(groupId: Int) async throws -> [APIGroupQuestion] {
+        return try await request("GET", path: "/groups/\(groupId)/questions?username=\(username.urlEncoded)")
+    }
+
     // MARK: - Questions
 
     func shareQuestion(groupId: Int, text: String, poolName: String, items: [ShareQuestionItem], itemCount: Int) async throws {

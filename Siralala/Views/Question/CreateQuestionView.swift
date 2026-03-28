@@ -11,6 +11,7 @@ struct CreateQuestionView: View {
     @State private var selectedGroupId: Int?
     @State private var isSharing = false
     @State private var errorMessage: String?
+    @State private var showCreateGroup = false
     @FocusState private var isFocused: Bool
 
     private var maxItems: Int { pool.itemCount }
@@ -77,9 +78,22 @@ struct CreateQuestionView: View {
                         .foregroundStyle(.secondary)
 
                     if groups.isEmpty {
-                        Text("Henüz grup yok. Profil > Gruplar'dan oluştur.")
-                            .font(.caption)
-                            .foregroundStyle(.red.opacity(0.7))
+                        VStack(spacing: 10) {
+                            Text("Soruyu paylaşmak için bir grubun olmalı")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                showCreateGroup = true
+                            } label: {
+                                Label("Grup Oluştur", systemImage: "person.3.fill")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(.orange.gradient, in: Capsule())
+                                    .foregroundStyle(.white)
+                            }
+                        }
                     } else {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
@@ -143,6 +157,11 @@ struct CreateQuestionView: View {
             }
             .task {
                 groups = (try? await APIService.shared.getGroups()) ?? []
+            }
+            .sheet(isPresented: $showCreateGroup) {
+                CreateGroupView {
+                    Task { groups = (try? await APIService.shared.getGroups()) ?? [] }
+                }
             }
         }
     }

@@ -11,23 +11,33 @@ struct GroupListView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(groups) { group in
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(.purple.gradient)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "person.3.fill")
-                                .font(.caption)
-                                .foregroundStyle(.white)
+                    NavigationLink(destination: GroupDetailView(group: group)) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.purple.gradient)
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "person.3.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.name)
+                                    .font(.headline)
+                                Text(group.members.map(\.displayName).joined(separator: ", "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(group.name)
-                                .font(.headline)
-                            Text(group.members.map(\.displayName).joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                    }
+                }
+                .onDelete { indexSet in
+                    Task {
+                        for index in indexSet {
+                            try? await APIService.shared.deleteGroup(id: groups[index].id)
                         }
+                        await loadGroups()
                     }
                 }
             }
