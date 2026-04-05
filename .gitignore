@@ -11,3 +11,6 @@ DerivedData/
 logo_*.html
 server/siralala.db-shm
 server/siralala.db-wal
+firebase/functions/node_modules
+.vercel
+siralala-firebase-adminsdk*

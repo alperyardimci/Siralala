@@ -185,7 +185,6 @@ struct RankingContainerView: View {
             Button {
                 if !didSave {
                     viewModel.saveRanking(context: context, participantName: userName)
-                    viewModel.generateMockRankings(context: context, count: 2)
                     didSave = true
                 }
                 showResults = true

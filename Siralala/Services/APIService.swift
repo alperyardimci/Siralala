@@ -7,7 +7,7 @@ final class APIService {
     #if targetEnvironment(simulator)
     let baseURL = "http://localhost:3000/api"
     #else
-    let baseURL = "https://siralala-production.up.railway.app/api"
+    let baseURL = "https://firebase-nu-swart.vercel.app/api"
     #endif
     var currentUser: APIUser?
 
