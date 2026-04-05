@@ -133,12 +133,16 @@ struct SharedRankingContainerView: View {
 
                 if alreadyRanked {
                     alreadyRankedView
+                        .frame(maxWidth: 500)
                 } else if viewModel.phase == .ready {
                     readyView
+                        .frame(maxWidth: 500)
                 } else if viewModel.phase == .complete {
                     completeView
+                        .frame(maxWidth: 600)
                 } else {
                     rankingArea
+                        .frame(maxWidth: 900)
                 }
             }
         }
@@ -222,6 +226,7 @@ struct SharedRankingContainerView: View {
             Spacer()
             VStack(spacing: 16) {
                 Image(systemName: "hand.tap.fill")
+
                     .font(.system(size: 60))
                     .foregroundStyle(.orange.gradient)
                 Text("Hazır mısın?")

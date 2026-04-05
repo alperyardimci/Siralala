@@ -4,7 +4,11 @@ import Foundation
 final class APIService {
     static let shared = APIService()
 
+    #if targetEnvironment(simulator)
     let baseURL = "http://localhost:3000/api"
+    #else
+    let baseURL = "https://siralala-production.up.railway.app/api"
+    #endif
     var currentUser: APIUser?
 
     var username: String {
@@ -111,6 +115,26 @@ final class APIService {
         return try await request("GET", path: "/groups/\(groupId)/questions?username=\(username.urlEncoded)")
     }
 
+    // MARK: - Shared Pools
+
+    func sharePool(groupId: Int, name: String, items: [ShareQuestionItem]) async throws {
+        try await requestVoid("POST", path: "/pools/share", body: SharePoolRequest(
+            username: username, groupId: groupId, name: name, items: items
+        ))
+    }
+
+    func getGroupPools(groupId: Int) async throws -> [APISharedPool] {
+        return try await request("GET", path: "/groups/\(groupId)/pools")
+    }
+
+    func getAllSharedPools() async throws -> [APISharedPool] {
+        return try await request("GET", path: "/pools/shared?username=\(username.urlEncoded)")
+    }
+
+    func getPoolItems(poolId: Int) async throws -> [APIQuestionItem] {
+        return try await request("GET", path: "/pools/\(poolId)/items")
+    }
+
     // MARK: - Questions
 
     func shareQuestion(groupId: Int, text: String, poolName: String, items: [ShareQuestionItem], itemCount: Int) async throws {
@@ -127,8 +151,17 @@ final class APIService {
         return try await request("GET", path: "/questions/completed?username=\(username.urlEncoded)")
     }
 
+    func dismissQuestion(id: Int) async throws {
+        struct DismissBody: Encodable { let username: String }
+        try await requestVoid("POST", path: "/questions/\(id)/dismiss", body: DismissBody(username: username))
+    }
+
     func deleteQuestion(id: Int) async throws {
-        try await requestVoid("DELETE", path: "/questions/\(id)")
+        try await requestVoid("DELETE", path: "/questions/\(id)?username=\(username.urlEncoded)")
+    }
+
+    func deleteSharedPool(id: Int) async throws {
+        try await requestVoid("DELETE", path: "/pools/\(id)?username=\(username.urlEncoded)")
     }
 
     // MARK: - Rankings

@@ -21,6 +21,7 @@ struct ContentView: View {
                         Label("Profil", systemImage: "person.fill")
                     }
             }
+            .tabViewStyle(.tabBarOnly)
             .tint(.orange)
             .task {
                 let name = APIService.shared.username
@@ -47,7 +48,7 @@ struct OnboardingView: View {
         VStack(spacing: 32) {
             Spacer()
 
-            Image(systemName: "list.number")
+            Image(systemName: "trophy.fill")
                 .font(.system(size: 70))
                 .foregroundStyle(.orange.gradient)
 
@@ -55,14 +56,13 @@ struct OnboardingView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Kör sıralama ile arkadaşlarını şaşırt!")
+            Text("Rastgele sıralama ile arkadaşlarını şaşırt!")
                 .foregroundStyle(.secondary)
 
             TextField("Kullanıcı adın", text: $userName)
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .padding(.horizontal, 48)
 
             Button {
                 Task { await register() }
@@ -81,7 +81,6 @@ struct OnboardingView: View {
             .background(.orange.gradient, in: RoundedRectangle(cornerRadius: 14))
             .foregroundStyle(.white)
             .disabled(userName.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
-            .padding(.horizontal, 48)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -91,6 +90,8 @@ struct OnboardingView: View {
 
             Spacer()
         }
+        .frame(maxWidth: 400)
+        .padding(.horizontal, 48)
     }
 
     private func register() async {

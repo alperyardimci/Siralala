@@ -77,6 +77,10 @@ struct CreatePoolView: View {
         VStack(spacing: 0) {
             List {
                 Section {
+                    AddItemRow(viewModel: viewModel, pool: pool)
+                }
+
+                Section {
                     ForEach(pool.items ?? []) { item in
                         ItemRow(item: item)
                     }
@@ -88,10 +92,6 @@ struct CreatePoolView: View {
                     }
                 } header: {
                     Text("\(pool.itemCount) öğe")
-                }
-
-                Section {
-                    AddItemRow(viewModel: viewModel, pool: pool)
                 }
             }
         }
@@ -134,46 +134,57 @@ struct AddItemRow: View {
     @State private var showPhotoPicker = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button {
-                showPhotoPicker = true
-            } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(.orange.opacity(0.1))
-                        .frame(width: 44, height: 44)
-
-                    if let data = viewModel.selectedImageData, let uiImage = UIImage(data: data) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.orange.opacity(0.1))
                             .frame(width: 44, height: 44)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    } else {
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.orange.opacity(0.6))
+
+                        if let data = viewModel.selectedImageData, let uiImage = UIImage(data: data) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        } else {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.orange.opacity(0.6))
+                        }
                     }
                 }
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            TextField("Öğe adı", text: $viewModel.newItemName)
-                .focused($isFocused)
-                .onSubmit {
+                TextField("Öğe adı", text: $viewModel.newItemName)
+                    .focused($isFocused)
+                    .onChange(of: viewModel.newItemName) {
+                        viewModel.duplicateWarning = nil
+                    }
+                    .onSubmit {
+                        viewModel.addItem(to: pool, context: context)
+                        isFocused = true
+                    }
+
+                Button {
                     viewModel.addItem(to: pool, context: context)
                     isFocused = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
                 }
-
-            Button {
-                viewModel.addItem(to: pool, context: context)
-                isFocused = true
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.orange)
+                .disabled(viewModel.newItemName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .disabled(viewModel.newItemName.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            if let warning = viewModel.duplicateWarning {
+                Text(warning)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $viewModel.selectedPhoto, matching: .images)
         .onChange(of: viewModel.selectedPhoto) {

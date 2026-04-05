@@ -3,7 +3,12 @@ import SwiftUI
 struct GroupDetailView: View {
     let group: APIGroup
     @State private var questions: [APIGroupQuestion] = []
+    @State private var pools: [APISharedPool] = []
     @State private var isLoading = true
+
+    private var myUserId: Int? {
+        APIService.shared.currentUser?.id
+    }
 
     var body: some View {
         List {
@@ -21,6 +26,55 @@ struct GroupDetailView: View {
                         }
                         Text(member.displayName)
                             .font(.subheadline)
+                    }
+                }
+            }
+
+            Section("Havuzlar (\(pools.count))") {
+                if pools.isEmpty && !isLoading {
+                    Text("Henüz paylaşılan havuz yok")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(pools) { pool in
+                        NavigationLink {
+                            SharedPoolQuestionView(pool: pool, group: group)
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(.purple.opacity(0.15))
+                                        .frame(width: 40, height: 40)
+                                    Image(systemName: "square.stack.3d.up.fill")
+                                        .foregroundStyle(.purple)
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(pool.name)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    Text("\(pool.creatorName) · \(pool.itemCount) öğe")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("Soru Sor")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.purple)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            if pool.creatorId == myUserId {
+                                Button(role: .destructive) {
+                                    Task {
+                                        try? await APIService.shared.deleteSharedPool(id: pool.id)
+                                        await loadData()
+                                    }
+                                } label: {
+                                    Label("Sil", systemImage: "trash")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -46,18 +100,33 @@ struct GroupDetailView: View {
                         } label: {
                             GroupQuestionRow(question: question)
                         }
+                        .swipeActions(edge: .trailing) {
+                            if question.creatorId == myUserId {
+                                Button(role: .destructive) {
+                                    Task {
+                                        try? await APIService.shared.deleteQuestion(id: question.id)
+                                        await loadData()
+                                    }
+                                } label: {
+                                    Label("Sil", systemImage: "trash")
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await loadQuestions() }
-        .refreshable { await loadQuestions() }
+        .task { await loadData() }
+        .refreshable { await loadData() }
     }
 
-    private func loadQuestions() async {
-        questions = (try? await APIService.shared.getGroupQuestions(groupId: group.id)) ?? []
+    private func loadData() async {
+        async let q = APIService.shared.getGroupQuestions(groupId: group.id)
+        async let p = APIService.shared.getGroupPools(groupId: group.id)
+        questions = (try? await q) ?? []
+        pools = (try? await p) ?? []
         isLoading = false
     }
 }

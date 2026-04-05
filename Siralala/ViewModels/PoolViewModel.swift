@@ -8,6 +8,7 @@ final class PoolViewModel {
     var newItemName: String = ""
     var selectedPhoto: PhotosPickerItem? = nil
     var selectedImageData: Data? = nil
+    var duplicateWarning: String? = nil
 
     func createPool(context: ModelContext) -> Pool? {
         guard !poolName.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
@@ -19,9 +20,18 @@ final class PoolViewModel {
     }
 
     func addItem(to pool: Pool, context: ModelContext) {
-        guard !newItemName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let trimmed = newItemName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+
+        let exists = (pool.items ?? []).contains { $0.name.lowercased() == trimmed.lowercased() }
+        if exists {
+            duplicateWarning = "\"\(trimmed)\" zaten havuzda"
+            return
+        }
+
+        duplicateWarning = nil
         let item = PoolItem(
-            name: newItemName.trimmingCharacters(in: .whitespaces),
+            name: trimmed,
             imageData: selectedImageData
         )
         item.pool = pool

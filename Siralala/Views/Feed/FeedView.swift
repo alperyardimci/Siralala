@@ -44,6 +44,7 @@ struct FeedView: View {
                 VStack(spacing: 24) {
                     if pendingQuestions.isEmpty && completedQuestions.isEmpty && !isLoading {
                         emptyState
+                            .frame(maxWidth: 500)
                     } else {
                         if !pendingQuestions.isEmpty {
                             pendingSection
@@ -53,8 +54,11 @@ struct FeedView: View {
                         }
                     }
                 }
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
                 .padding()
             }
+            .scrollContentBackground(.hidden)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -75,7 +79,7 @@ struct FeedView: View {
                     }
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .refreshable { await loadQuestions() }
             .task { await loadQuestions() }
             .onReceive(NotificationCenter.default.publisher(for: .feedNeedsRefresh)) { _ in
@@ -93,11 +97,14 @@ struct FeedView: View {
     }
 
     private func loadQuestions() async {
-        isLoading = true
+        let wasEmpty = pendingQuestions.isEmpty && completedQuestions.isEmpty
+        if wasEmpty { isLoading = true }
         async let p = APIService.shared.getPendingQuestions()
         async let c = APIService.shared.getCompletedQuestions()
-        pendingQuestions = (try? await p) ?? []
-        completedQuestions = (try? await c) ?? []
+        let newPending = (try? await p) ?? []
+        let newCompleted = (try? await c) ?? []
+        pendingQuestions = newPending
+        completedQuestions = newCompleted
         isLoading = false
     }
 
@@ -135,6 +142,17 @@ struct FeedView: View {
                     PendingQuestionCard(question: question)
                 }
                 .buttonStyle(.plain)
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        Task {
+                            try? await APIService.shared.dismissQuestion(id: question.id)
+                            await loadQuestions()
+                        }
+                    } label: {
+                        Label("Gizle", systemImage: "eye.slash")
+                    }
+                    .tint(.gray)
+                }
             }
         }
     }
@@ -147,9 +165,9 @@ struct FeedView: View {
 
             ForEach(completedQuestions) { question in
                 NavigationLink(value: QuestionNavigation.results(question)) {
-                    CompletedQuestionCard(question: question, onDelete: {
+                    CompletedQuestionCard(question: question, onDismiss: {
                         Task {
-                            try? await APIService.shared.deleteQuestion(id: question.id)
+                            try? await APIService.shared.dismissQuestion(id: question.id)
                             await loadQuestions()
                         }
                     })
@@ -196,8 +214,8 @@ struct PendingQuestionCard: View {
 
 struct CompletedQuestionCard: View {
     let question: APISharedQuestion
-    var onDelete: (() -> Void)? = nil
-    @State private var showDeleteAlert = false
+    var onDismiss: (() -> Void)? = nil
+    @State private var showDismissAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -212,13 +230,13 @@ struct CompletedQuestionCard: View {
                 }
                 Spacer()
 
-                if onDelete != nil {
+                if onDismiss != nil {
                     Button {
-                        showDeleteAlert = true
+                        showDismissAlert = true
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "eye.slash")
                             .font(.subheadline)
-                            .foregroundStyle(.red.opacity(0.7))
+                            .foregroundStyle(.gray)
                     }
                 }
             }
@@ -237,11 +255,11 @@ struct CompletedQuestionCard: View {
         .padding()
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
-        .alert("Sıralamayı Sil", isPresented: $showDeleteAlert) {
-            Button("Sil", role: .destructive) { onDelete?() }
+        .alert("Ana sayfadan gizle", isPresented: $showDismissAlert) {
+            Button("Gizle", role: .destructive) { onDismiss?() }
             Button("İptal", role: .cancel) { }
         } message: {
-            Text("Bu sıralama ve tüm sonuçları silinecek.")
+            Text("Bu soru ana sayfandan kaldırılacak. Grup detayından hâlâ erişebilirsin.")
         }
     }
 }

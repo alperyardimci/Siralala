@@ -63,6 +63,29 @@ db.exec(`
     sort_order INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS shared_pools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER REFERENCES groups_(id) ON DELETE CASCADE,
+    creator_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS shared_pool_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pool_id INTEGER REFERENCES shared_pools(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    image_data TEXT,
+    sort_order INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS dismissed_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    question_id INTEGER REFERENCES shared_questions(id) ON DELETE CASCADE,
+    UNIQUE(user_id, question_id)
+  );
+
   CREATE TABLE IF NOT EXISTS rankings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     question_id INTEGER REFERENCES shared_questions(id) ON DELETE CASCADE,
@@ -207,6 +230,75 @@ app.get('/api/groups', (req, res) => {
   res.json(groups);
 });
 
+// --- Shared Pools ---
+app.post('/api/pools/share', (req, res) => {
+  const { username, groupId, name, items } = req.body;
+  const user = getUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const pool = db.transaction(() => {
+    const result = db.prepare('INSERT INTO shared_pools (group_id, creator_id, name) VALUES (?, ?, ?)').run(groupId, user.id, name);
+    const poolId = result.lastInsertRowid;
+
+    const insertItem = db.prepare('INSERT INTO shared_pool_items (pool_id, name, image_data, sort_order) VALUES (?, ?, ?, ?)');
+    const insertedItems = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const r = insertItem.run(poolId, item.name, item.imageData || null, i);
+      insertedItems.push({ id: r.lastInsertRowid, name: item.name, image_data: item.imageData || null, sort_order: i });
+    }
+
+    return { id: poolId, group_id: groupId, creator_name: user.display_name, name, item_count: items.length, items: insertedItems };
+  })();
+
+  res.json(pool);
+});
+
+app.get('/api/pools/shared', (req, res) => {
+  const user = getUser(req.query.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const pools = db.prepare(`
+    SELECT sp.id, sp.name, sp.group_id, sp.created_at, u.display_name as creator_name,
+           g.name as group_name,
+           (SELECT COUNT(*) FROM shared_pool_items WHERE pool_id = sp.id) as item_count
+    FROM shared_pools sp
+    JOIN users u ON u.id = sp.creator_id
+    JOIN groups_ g ON g.id = sp.group_id
+    JOIN group_members gm ON gm.group_id = sp.group_id AND gm.user_id = ?
+    ORDER BY sp.created_at DESC
+  `).all(user.id);
+
+  res.json(pools);
+});
+
+app.get('/api/groups/:groupId/pools', (req, res) => {
+  const pools = db.prepare(`
+    SELECT sp.id, sp.name, sp.group_id, sp.created_at, u.display_name as creator_name,
+           (SELECT COUNT(*) FROM shared_pool_items WHERE pool_id = sp.id) as item_count
+    FROM shared_pools sp
+    JOIN users u ON u.id = sp.creator_id
+    WHERE sp.group_id = ?
+    ORDER BY sp.created_at DESC
+  `).all(req.params.groupId);
+
+  res.json(pools);
+});
+
+app.get('/api/pools/:poolId/items', (req, res) => {
+  const items = db.prepare('SELECT id, name, image_data, sort_order FROM shared_pool_items WHERE pool_id = ? ORDER BY sort_order').all(req.params.poolId);
+  res.json(items);
+});
+
+app.delete('/api/pools/:poolId', (req, res) => {
+  const user = getUser(req.query.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const pool = db.prepare('SELECT * FROM shared_pools WHERE id = ?').get(req.params.poolId);
+  if (!pool || pool.creator_id !== user.id) return res.status(403).json({ error: 'Only the owner can delete' });
+  db.prepare('DELETE FROM shared_pools WHERE id = ?').run(req.params.poolId);
+  res.json({ success: true });
+});
+
 app.get('/api/groups/:groupId/questions', (req, res) => {
   const user = getUser(req.query.username);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -287,7 +379,8 @@ app.get('/api/questions/pending', (req, res) => {
     JOIN users u ON u.id = sq.creator_id
     WHERE sq.is_active = 1
     AND sq.id NOT IN (SELECT question_id FROM rankings WHERE user_id = ?)
-  `).all(user.id, user.id);
+    AND sq.id NOT IN (SELECT question_id FROM dismissed_questions WHERE user_id = ?)
+  `).all(user.id, user.id, user.id);
 
   for (const q of questions) {
     q.items = db.prepare('SELECT id, name, image_data, sort_order FROM shared_question_items WHERE question_id = ? ORDER BY sort_order').all(q.id);
@@ -307,7 +400,8 @@ app.get('/api/questions/completed', (req, res) => {
     JOIN groups_ g ON g.id = sq.group_id
     JOIN rankings r ON r.question_id = sq.id AND r.user_id = ?
     JOIN users u ON u.id = sq.creator_id
-  `).all(user.id);
+    WHERE sq.id NOT IN (SELECT question_id FROM dismissed_questions WHERE user_id = ?)
+  `).all(user.id, user.id);
 
   for (const q of questions) {
     q.items = db.prepare('SELECT id, name, image_data, sort_order FROM shared_question_items WHERE question_id = ? ORDER BY sort_order').all(q.id);
@@ -318,7 +412,20 @@ app.get('/api/questions/completed', (req, res) => {
 });
 
 app.delete('/api/questions/:questionId', (req, res) => {
+  const user = getUser(req.query.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const question = db.prepare('SELECT * FROM shared_questions WHERE id = ?').get(req.params.questionId);
+  if (!question || question.creator_id !== user.id) return res.status(403).json({ error: 'Only the owner can delete' });
   db.prepare('DELETE FROM shared_questions WHERE id = ?').run(req.params.questionId);
+  res.json({ success: true });
+});
+
+app.post('/api/questions/:questionId/dismiss', (req, res) => {
+  const { username } = req.body;
+  const user = getUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  db.prepare('INSERT OR IGNORE INTO dismissed_questions (user_id, question_id) VALUES (?, ?)').run(user.id, req.params.questionId);
   res.json({ success: true });
 });
 
@@ -370,7 +477,7 @@ app.get('/api/rankings', (req, res) => {
 });
 
 // --- Start ---
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Siralala server running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Siralala server running on port ${PORT}`);
 });

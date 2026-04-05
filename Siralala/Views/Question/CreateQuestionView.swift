@@ -144,6 +144,7 @@ struct CreateQuestionView: View {
 
                 Spacer()
             }
+            .frame(maxWidth: 500)
             .navigationTitle("Yeni Soru")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

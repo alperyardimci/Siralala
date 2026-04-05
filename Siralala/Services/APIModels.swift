@@ -56,6 +56,7 @@ struct APIGroupQuestion: Codable, Identifiable {
     let text: String
     let poolName: String
     let itemCount: Int
+    let creatorId: Int
     let creatorName: String
     let groupName: String
     var items: [APIQuestionItem]
@@ -66,6 +67,7 @@ struct APIGroupQuestion: Codable, Identifiable {
         case id, text, items
         case poolName = "pool_name"
         case itemCount = "item_count"
+        case creatorId = "creator_id"
         case creatorName = "creator_name"
         case groupName = "group_name"
         case completionCount = "completion_count"
@@ -125,6 +127,26 @@ struct APIRankingEntry: Codable {
     }
 }
 
+// Shared Pools
+struct APISharedPool: Codable, Identifiable {
+    let id: Int
+    let name: String
+    let creatorId: Int?
+    let creatorName: String
+    let groupName: String?
+    let groupId: Int?
+    let itemCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case creatorId = "creator_id"
+        case creatorName = "creator_name"
+        case groupName = "group_name"
+        case groupId = "group_id"
+        case itemCount = "item_count"
+    }
+}
+
 // Request bodies
 struct RegisterRequest: Encodable {
     let username: String
@@ -165,4 +187,11 @@ struct SubmitRankingRequest: Encodable {
 struct SubmitRankingEntry: Encodable {
     let itemId: Int
     let rank: Int
+}
+
+struct SharePoolRequest: Encodable {
+    let username: String
+    let groupId: Int
+    let name: String
+    let items: [ShareQuestionItem]
 }
