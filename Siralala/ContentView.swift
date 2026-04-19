@@ -97,16 +97,25 @@ struct OnboardingView: View {
     private func register() async {
         isLoading = true
         errorMessage = nil
-        do {
-            let name = userName.trimmingCharacters(in: .whitespaces)
-            _ = try await APIService.shared.register(username: name, displayName: name)
-            UserDefaults.standard.set(name, forKey: "userName")
-            await MainActor.run {
-                isRegistered = true
+        let name = userName.trimmingCharacters(in: .whitespaces)
+
+        // Retry up to 3 times with delay
+        for attempt in 1...3 {
+            do {
+                _ = try await APIService.shared.register(username: name, displayName: name)
+                UserDefaults.standard.set(name, forKey: "userName")
+                await MainActor.run {
+                    isRegistered = true
+                }
+                isLoading = false
+                return
+            } catch {
+                if attempt < 3 {
+                    try? await Task.sleep(for: .seconds(1))
+                }
             }
-        } catch {
-            errorMessage = "Sunucuya bağlanılamadı. Sunucu çalışıyor mu?"
         }
+        errorMessage = "Bağlantı kurulamadı. İnternet bağlantınızı kontrol edip tekrar deneyin."
         isLoading = false
     }
 }
