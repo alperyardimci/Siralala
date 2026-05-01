@@ -16,7 +16,7 @@ struct SiralalaApp: App {
         let config = ModelConfiguration(schema: schema)
         do {
             container = try ModelContainer(for: schema, configurations: [config])
-            MockData.seedIfNeeded(context: container.mainContext)
+            // Demo content is now seeded server-side during onboarding
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
@@ -25,6 +25,11 @@ struct SiralalaApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.light)
+                .tint(Color.dsDeep)
+                .onTapGesture {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
         }
         .modelContainer(container)
     }

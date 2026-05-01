@@ -4,12 +4,27 @@ import Foundation
 final class APIService {
     static let shared = APIService()
 
-    #if targetEnvironment(simulator)
-    let baseURL = "http://localhost:3000/api"
-    #else
     let baseURL = "https://firebase-nu-swart.vercel.app/api"
-    #endif
     var currentUser: APIUser?
+
+    // MARK: - Cache
+    private var cache: [String: (data: Any, time: Date)] = [:]
+    private let cacheTTL: TimeInterval = 30 // seconds
+
+    private func cached<T>(_ key: String) -> T? {
+        guard let entry = cache[key],
+              Date().timeIntervalSince(entry.time) < cacheTTL,
+              let data = entry.data as? T else { return nil }
+        return data
+    }
+
+    private func setCache<T>(_ key: String, _ data: T) {
+        cache[key] = (data: data, time: Date())
+    }
+
+    func invalidateCache(_ key: String? = nil) {
+        if let key { cache.removeValue(forKey: key) } else { cache.removeAll() }
+    }
 
     var username: String {
         UserDefaults.standard.string(forKey: "userName") ?? ""
@@ -72,8 +87,11 @@ final class APIService {
     }
 
     func getMe() async throws -> APIUser {
+        let key = "me_\(username)"
+        if let c: APIUser = cached(key) { currentUser = c; return c }
         let user: APIUser = try await request("GET", path: "/users/me?username=\(username.urlEncoded)")
         currentUser = user
+        setCache(key, user)
         return user
     }
 
@@ -86,94 +104,152 @@ final class APIService {
     func addFriend(code: String) async throws -> APIFriend {
         struct AddResponse: Decodable { let success: Bool; let friend: APIFriend }
         let resp: AddResponse = try await request("POST", path: "/friends/add", body: AddFriendRequest(username: username, friendCode: code))
+        invalidateCache("friends_\(username)")
         return resp.friend
     }
 
     func getFriends() async throws -> [APIFriend] {
-        return try await request("GET", path: "/friends?username=\(username.urlEncoded)")
+        let key = "friends_\(username)"
+        if let c: [APIFriend] = cached(key) { return c }
+        let result: [APIFriend] = try await request("GET", path: "/friends?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
-    func removeFriend(id: Int) async throws {
+    func removeFriend(id: String) async throws {
         try await requestVoid("DELETE", path: "/friends/\(id)?username=\(username.urlEncoded)")
+        invalidateCache("friends_\(username)")
     }
 
     // MARK: - Groups
 
     func createGroup(name: String, memberUsernames: [String]) async throws -> APIGroup {
-        return try await request("POST", path: "/groups", body: CreateGroupRequest(username: username, name: name, memberUsernames: memberUsernames))
+        let group: APIGroup = try await request("POST", path: "/groups", body: CreateGroupRequest(username: username, name: name, memberUsernames: memberUsernames))
+        invalidateCache("groups_\(username)")
+        return group
     }
 
     func getGroups() async throws -> [APIGroup] {
-        return try await request("GET", path: "/groups?username=\(username.urlEncoded)")
+        let key = "groups_\(username)"
+        if let c: [APIGroup] = cached(key) { return c }
+        let result: [APIGroup] = try await request("GET", path: "/groups?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
-    func deleteGroup(id: Int) async throws {
+    func deleteGroup(id: String) async throws {
         try await requestVoid("DELETE", path: "/groups/\(id)")
+        invalidateCache("groups_\(username)")
     }
 
-    func getGroupQuestions(groupId: Int) async throws -> [APIGroupQuestion] {
-        return try await request("GET", path: "/groups/\(groupId)/questions?username=\(username.urlEncoded)")
+    func addGroupMember(groupId: String, memberUsername: String) async throws {
+        try await requestVoid("POST", path: "/groups/\(groupId)/members", body: ["username": memberUsername])
+        invalidateCache("groups_\(username)")
+    }
+
+    func getGroupQuestions(groupId: String) async throws -> [APIGroupQuestion] {
+        let key = "gq_\(groupId)"
+        if let c: [APIGroupQuestion] = cached(key) { return c }
+        let result: [APIGroupQuestion] = try await request("GET", path: "/groups/\(groupId)/questions?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
     // MARK: - Shared Pools
 
-    func sharePool(groupId: Int, name: String, items: [ShareQuestionItem]) async throws {
+    func sharePool(groupId: String, name: String, items: [ShareQuestionItem]) async throws {
         try await requestVoid("POST", path: "/pools/share", body: SharePoolRequest(
             username: username, groupId: groupId, name: name, items: items
         ))
+        invalidateCache("sharedPools_\(username)")
+        invalidateCache("gp_\(groupId)")
     }
 
-    func getGroupPools(groupId: Int) async throws -> [APISharedPool] {
-        return try await request("GET", path: "/groups/\(groupId)/pools")
+    func getGroupPools(groupId: String) async throws -> [APISharedPool] {
+        let key = "gp_\(groupId)"
+        if let c: [APISharedPool] = cached(key) { return c }
+        let result: [APISharedPool] = try await request("GET", path: "/groups/\(groupId)/pools")
+        setCache(key, result)
+        return result
     }
 
     func getAllSharedPools() async throws -> [APISharedPool] {
-        return try await request("GET", path: "/pools/shared?username=\(username.urlEncoded)")
+        let key = "sharedPools_\(username)"
+        if let c: [APISharedPool] = cached(key) { return c }
+        let result: [APISharedPool] = try await request("GET", path: "/pools/shared?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
-    func getPoolItems(poolId: Int) async throws -> [APIQuestionItem] {
-        return try await request("GET", path: "/pools/\(poolId)/items")
+    func getPoolItems(poolId: String) async throws -> [APIQuestionItem] {
+        let key = "poolItems_\(poolId)"
+        if let c: [APIQuestionItem] = cached(key) { return c }
+        let result: [APIQuestionItem] = try await request("GET", path: "/pools/\(poolId)/items")
+        setCache(key, result)
+        return result
     }
 
     // MARK: - Questions
 
-    func shareQuestion(groupId: Int, text: String, poolName: String, items: [ShareQuestionItem], itemCount: Int) async throws {
+    func shareQuestion(groupId: String, text: String, poolName: String, items: [ShareQuestionItem], itemCount: Int, maxAttempts: Int = 1) async throws {
         try await requestVoid("POST", path: "/questions", body: ShareQuestionRequest(
-            username: username, groupId: groupId, text: text, poolName: poolName, items: items, itemCount: itemCount
+            username: username, groupId: groupId, text: text, poolName: poolName, items: items, itemCount: itemCount, maxAttempts: maxAttempts
         ))
+        invalidateCache("pending_\(username)")
+        invalidateCache("gq_\(groupId)")
     }
 
     func getPendingQuestions() async throws -> [APISharedQuestion] {
-        return try await request("GET", path: "/questions/pending?username=\(username.urlEncoded)")
+        let key = "pending_\(username)"
+        if let c: [APISharedQuestion] = cached(key) { return c }
+        let result: [APISharedQuestion] = try await request("GET", path: "/questions/pending?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
     func getCompletedQuestions() async throws -> [APISharedQuestion] {
-        return try await request("GET", path: "/questions/completed?username=\(username.urlEncoded)")
+        let key = "completed_\(username)"
+        if let c: [APISharedQuestion] = cached(key) { return c }
+        let result: [APISharedQuestion] = try await request("GET", path: "/questions/completed?username=\(username.urlEncoded)")
+        setCache(key, result)
+        return result
     }
 
-    func dismissQuestion(id: Int) async throws {
+    func dismissQuestion(id: String) async throws {
         struct DismissBody: Encodable { let username: String }
         try await requestVoid("POST", path: "/questions/\(id)/dismiss", body: DismissBody(username: username))
+        invalidateCache("pending_\(username)")
+        invalidateCache("completed_\(username)")
     }
 
-    func deleteQuestion(id: Int) async throws {
+    func deleteQuestion(id: String) async throws {
         try await requestVoid("DELETE", path: "/questions/\(id)?username=\(username.urlEncoded)")
+        invalidateCache("pending_\(username)")
+        invalidateCache("completed_\(username)")
     }
 
-    func deleteSharedPool(id: Int) async throws {
+    func deleteSharedPool(id: String) async throws {
         try await requestVoid("DELETE", path: "/pools/\(id)?username=\(username.urlEncoded)")
+        invalidateCache("sharedPools_\(username)")
     }
 
     // MARK: - Rankings
 
-    func submitRanking(questionId: Int, entries: [SubmitRankingEntry]) async throws {
+    func submitRanking(questionId: String, entries: [SubmitRankingEntry]) async throws {
         try await requestVoid("POST", path: "/rankings", body: SubmitRankingRequest(
             username: username, questionId: questionId, entries: entries
         ))
+        invalidateCache("pending_\(username)")
+        invalidateCache("completed_\(username)")
+        invalidateCache("rankings_\(questionId)")
     }
 
-    func getRankings(questionId: Int) async throws -> [APIRanking] {
-        return try await request("GET", path: "/rankings?questionId=\(questionId)")
+    func getRankings(questionId: String) async throws -> [APIRanking] {
+        let key = "rankings_\(questionId)"
+        if let c: [APIRanking] = cached(key) { return c }
+        let result: [APIRanking] = try await request("GET", path: "/rankings?questionId=\(questionId)")
+        setCache(key, result)
+        return result
     }
 }
 

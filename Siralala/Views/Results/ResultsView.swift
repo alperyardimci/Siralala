@@ -19,16 +19,17 @@ struct ResultsView: View {
             VStack(spacing: 4) {
                 Text(question.text)
                     .font(.headline)
+                    .foregroundStyle(Color.dsDeep)
                 Text(question.pool?.name ?? "")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.dsMuted)
             }
             .padding()
 
             if completedSessions.isEmpty {
                 Spacer()
                 Text("Henüz kimse sıralama yapmamış")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.dsMuted)
                 Spacer()
             } else {
                 // Tab picker for sessions
@@ -45,9 +46,9 @@ struct ResultsView: View {
                                     .padding(.vertical, 8)
                                     .background(
                                         Capsule()
-                                            .fill(selectedTab == index ? .orange : .gray.opacity(0.15))
+                                            .fill(selectedTab == index ? Color.dsDeep : Color.dsSurfaceDim)
                                     )
-                                    .foregroundStyle(selectedTab == index ? .white : .primary)
+                                    .foregroundStyle(selectedTab == index ? .white : Color.dsDeep)
                             }
                         }
 
@@ -62,9 +63,9 @@ struct ResultsView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule()
-                                        .fill(selectedTab == completedSessions.count ? .purple : .gray.opacity(0.15))
+                                        .fill(selectedTab == completedSessions.count ? Color.dsDeep : Color.dsSurfaceDim)
                                 )
-                                .foregroundStyle(selectedTab == completedSessions.count ? .white : .primary)
+                                .foregroundStyle(selectedTab == completedSessions.count ? .white : Color.dsDeep)
                         }
                     }
                     .padding(.horizontal)
@@ -78,6 +79,7 @@ struct ResultsView: View {
                 }
             }
         }
+        .background(Color.dsBg.ignoresSafeArea())
         .navigationTitle("Sonuçlar")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
@@ -92,7 +94,7 @@ struct ResultsView: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(.orange.gradient, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.dsDeep, in: RoundedRectangle(cornerRadius: 14))
                         .foregroundStyle(.white)
                 }
                 .padding(.horizontal, 24)
@@ -121,16 +123,17 @@ struct SessionRankingList: View {
                         } else {
                             ZStack {
                                 Circle()
-                                    .fill(.orange.opacity(0.15))
+                                    .fill(Color.dsAccentSoft)
                                     .frame(width: 40, height: 40)
                                 Text(item.name.prefix(1).uppercased())
                                     .font(.headline)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(Color.dsAccent)
                             }
                         }
 
                         Text(item.name)
                             .font(.body)
+                            .foregroundStyle(Color.dsDeep)
                     }
 
                     Spacer()
@@ -138,6 +141,8 @@ struct SessionRankingList: View {
                 .padding(.vertical, 4)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.dsBg)
     }
 }
 
@@ -181,27 +186,28 @@ struct AverageRankingList: View {
                     } else {
                         ZStack {
                             Circle()
-                                .fill(.orange.opacity(0.15))
+                                .fill(Color.dsAccentSoft)
                                 .frame(width: 40, height: 40)
                             Text(ranking.item.name.prefix(1).uppercased())
                                 .font(.headline)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Color.dsAccent)
                         }
                     }
 
                     VStack(alignment: .leading) {
                         Text(ranking.item.name)
                             .font(.body)
+                            .foregroundStyle(Color.dsDeep)
                         Text("Ort: \(ranking.avgRank, specifier: "%.1f")")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.dsMuted)
                     }
 
                     Spacer()
 
                     // Bar showing average
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(.orange.gradient)
+                        .fill(index < 3 ? Color.dsAccent : Color.dsDeep)
                         .frame(
                             width: max(4, CGFloat(1.0 - (ranking.avgRank - 1.0) / Double(question.itemCount)) * 60),
                             height: 20
@@ -210,46 +216,22 @@ struct AverageRankingList: View {
                 .padding(.vertical, 4)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.dsBg)
     }
 }
 
 struct RankBadge: View {
     let rank: Int
 
-    private var color: Color {
+    private var chipStyle: RankChip.RankChipStyle {
         switch rank {
-        case 1: return .yellow
-        case 2: return .gray
-        case 3: return .orange
-        default: return .blue.opacity(0.3)
-        }
-    }
-
-    private var icon: String? {
-        switch rank {
-        case 1: return "crown.fill"
-        case 2: return "medal.fill"
-        case 3: return "medal.fill"
-        default: return nil
+        case 1, 2, 3: return .standard
+        default: return .soft
         }
     }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(color.gradient)
-                .frame(width: 36, height: 36)
-
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-            } else {
-                Text("\(rank)")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.white)
-            }
-        }
+        RankChip(number: rank, style: chipStyle)
     }
 }

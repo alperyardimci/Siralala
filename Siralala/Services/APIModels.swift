@@ -1,8 +1,31 @@
 import Foundation
 import UIKit
 
+/// Flexible ID that decodes from both Int and String JSON values
+struct FlexID: Codable, Hashable, Equatable, CustomStringConvertible {
+    let value: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let intVal = try? container.decode(Int.self) {
+            value = String(intVal)
+        } else {
+            value = try container.decode(String.self)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+
+    var description: String { value }
+
+    static func == (lhs: FlexID, rhs: FlexID) -> Bool { lhs.value == rhs.value }
+}
+
 struct APIUser: Codable {
-    let id: Int
+    let id: FlexID
     let username: String
     let displayName: String
     let friendCode: String
@@ -15,7 +38,7 @@ struct APIUser: Codable {
 }
 
 struct APIFriend: Codable, Identifiable, Hashable {
-    let id: Int
+    let id: FlexID
     let username: String
     let displayName: String
 
@@ -26,13 +49,13 @@ struct APIFriend: Codable, Identifiable, Hashable {
 }
 
 struct APIGroup: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let name: String
     var members: [APIFriend]
 }
 
 struct APISharedQuestion: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let text: String
     let poolName: String
     let itemCount: Int
@@ -40,6 +63,8 @@ struct APISharedQuestion: Codable, Identifiable {
     let groupName: String
     var items: [APIQuestionItem]
     var completionCount: Int
+    var maxAttempts: Int
+    var userAttemptCount: Int
 
     enum CodingKeys: String, CodingKey {
         case id, text, items
@@ -48,19 +73,43 @@ struct APISharedQuestion: Codable, Identifiable {
         case creatorName = "creator_name"
         case groupName = "group_name"
         case completionCount = "completion_count"
+        case maxAttempts = "max_attempts"
+        case userAttemptCount = "user_attempt_count"
+    }
+
+    init(id: FlexID, text: String, poolName: String, itemCount: Int, creatorName: String, groupName: String, items: [APIQuestionItem], completionCount: Int, maxAttempts: Int = 1, userAttemptCount: Int = 0) {
+        self.id = id; self.text = text; self.poolName = poolName; self.itemCount = itemCount
+        self.creatorName = creatorName; self.groupName = groupName; self.items = items
+        self.completionCount = completionCount; self.maxAttempts = maxAttempts; self.userAttemptCount = userAttemptCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(FlexID.self, forKey: .id)
+        text = try c.decode(String.self, forKey: .text)
+        poolName = try c.decode(String.self, forKey: .poolName)
+        itemCount = try c.decode(Int.self, forKey: .itemCount)
+        creatorName = try c.decode(String.self, forKey: .creatorName)
+        groupName = try c.decode(String.self, forKey: .groupName)
+        items = try c.decode([APIQuestionItem].self, forKey: .items)
+        completionCount = try c.decodeIfPresent(Int.self, forKey: .completionCount) ?? 0
+        maxAttempts = try c.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? 1
+        userAttemptCount = try c.decodeIfPresent(Int.self, forKey: .userAttemptCount) ?? 0
     }
 }
 
 struct APIGroupQuestion: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let text: String
     let poolName: String
     let itemCount: Int
-    let creatorId: Int
+    let creatorId: FlexID
     let creatorName: String
     let groupName: String
     var items: [APIQuestionItem]
     var completionCount: Int
+    var maxAttempts: Int
+    var userAttemptCount: Int
     var userRanked: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -71,16 +120,34 @@ struct APIGroupQuestion: Codable, Identifiable {
         case creatorName = "creator_name"
         case groupName = "group_name"
         case completionCount = "completion_count"
+        case maxAttempts = "max_attempts"
+        case userAttemptCount = "user_attempt_count"
         case userRanked = "user_ranked"
     }
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(FlexID.self, forKey: .id)
+        text = try c.decode(String.self, forKey: .text)
+        poolName = try c.decode(String.self, forKey: .poolName)
+        itemCount = try c.decode(Int.self, forKey: .itemCount)
+        creatorId = try c.decode(FlexID.self, forKey: .creatorId)
+        creatorName = try c.decode(String.self, forKey: .creatorName)
+        groupName = try c.decode(String.self, forKey: .groupName)
+        items = try c.decode([APIQuestionItem].self, forKey: .items)
+        completionCount = try c.decodeIfPresent(Int.self, forKey: .completionCount) ?? 0
+        maxAttempts = try c.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? 1
+        userAttemptCount = try c.decodeIfPresent(Int.self, forKey: .userAttemptCount) ?? 0
+        userRanked = try c.decodeIfPresent(Bool.self, forKey: .userRanked) ?? false
+    }
+
     var asSharedQuestion: APISharedQuestion {
-        APISharedQuestion(id: id, text: text, poolName: poolName, itemCount: itemCount, creatorName: creatorName, groupName: groupName, items: items, completionCount: completionCount)
+        APISharedQuestion(id: id, text: text, poolName: poolName, itemCount: itemCount, creatorName: creatorName, groupName: groupName, items: items, completionCount: completionCount, maxAttempts: maxAttempts, userAttemptCount: userAttemptCount)
     }
 }
 
 struct APIQuestionItem: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let name: String
     let imageData: String?
     let sortOrder: Int
@@ -98,7 +165,7 @@ struct APIQuestionItem: Codable, Identifiable {
 }
 
 struct APIRanking: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let participantName: String
     var entries: [APIRankingEntry]
 
@@ -110,7 +177,7 @@ struct APIRanking: Codable, Identifiable {
 
 struct APIRankingEntry: Codable {
     let rank: Int
-    let itemId: Int
+    let itemId: FlexID
     let itemName: String
     let itemImage: String?
 
@@ -129,12 +196,12 @@ struct APIRankingEntry: Codable {
 
 // Shared Pools
 struct APISharedPool: Codable, Identifiable {
-    let id: Int
+    let id: FlexID
     let name: String
-    let creatorId: Int?
+    let creatorId: FlexID?
     let creatorName: String
     let groupName: String?
-    let groupId: Int?
+    let groupId: FlexID?
     let itemCount: Int
 
     enum CodingKeys: String, CodingKey {
@@ -166,11 +233,12 @@ struct CreateGroupRequest: Encodable {
 
 struct ShareQuestionRequest: Encodable {
     let username: String
-    let groupId: Int
+    let groupId: String
     let text: String
     let poolName: String
     let items: [ShareQuestionItem]
     let itemCount: Int
+    let maxAttempts: Int
 }
 
 struct ShareQuestionItem: Encodable {
@@ -180,18 +248,18 @@ struct ShareQuestionItem: Encodable {
 
 struct SubmitRankingRequest: Encodable {
     let username: String
-    let questionId: Int
+    let questionId: String
     let entries: [SubmitRankingEntry]
 }
 
 struct SubmitRankingEntry: Encodable {
-    let itemId: Int
+    let itemId: String
     let rank: Int
 }
 
 struct SharePoolRequest: Encodable {
     let username: String
-    let groupId: Int
+    let groupId: String
     let name: String
     let items: [ShareQuestionItem]
 }

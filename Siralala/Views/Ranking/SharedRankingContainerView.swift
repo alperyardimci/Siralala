@@ -87,8 +87,8 @@ final class SharedRankingViewModel {
     }
 
     func submitToServer() async throws {
-        let entries = placements.map { SubmitRankingEntry(itemId: $0.value.id, rank: $0.key) }
-        try await APIService.shared.submitRanking(questionId: question.id, entries: entries)
+        let entries = placements.map { SubmitRankingEntry(itemId: $0.value.id.value, rank: $0.key) }
+        try await APIService.shared.submitRanking(questionId: question.id.value, entries: entries)
     }
 }
 
@@ -102,6 +102,7 @@ struct SharedRankingContainerView: View {
     @State private var showResults = false
     @State private var didSave = false
     @State private var alreadyRanked = false
+    @State private var submitError: String?
 
     init(question: APISharedQuestion, popToRoot: (() -> Void)? = nil) {
         self.question = question
@@ -109,27 +110,89 @@ struct SharedRankingContainerView: View {
         self._viewModel = State(initialValue: SharedRankingViewModel(question: question))
     }
 
+    private var progressFraction: CGFloat {
+        guard viewModel.rankCount > 0 else { return 0 }
+        return CGFloat(viewModel.currentIndex) / CGFloat(viewModel.rankCount)
+    }
+
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
+            Color.dsBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header
-                VStack(spacing: 8) {
-                    Text(question.text)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .multilineTextAlignment(.center)
+                // Top bar
+                HStack {
+                    Button {
+                        showQuitAlert = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Çık")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.dsDeep)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color.dsSurfaceDim)
+                                .overlay(Capsule().strokeBorder(Color.dsHairline, lineWidth: 1))
+                        )
+                    }
+                    Spacer()
+
                     if viewModel.phase != .ready && viewModel.phase != .complete {
-                        Text(viewModel.progress)
-                            .font(.headline)
-                            .foregroundStyle(.orange)
+                        Text("\(viewModel.currentIndex + 1) / \(viewModel.rankCount)")
+                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Color.dsDeep)
                             .contentTransition(.numericText())
                     }
+
+                    if question.maxAttempts > 1 {
+                        Spacer()
+                        Text("\(question.userAttemptCount + (didSave ? 1 : 0))/\(question.maxAttempts) hak")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.dsAccent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Color.dsAccentSoft))
+                    }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
+
+                // Progress bar
+                if viewModel.phase != .ready {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.dsSurfaceDim)
+                                .frame(height: 3)
+                            Rectangle()
+                                .fill(Color.dsAccent)
+                                .frame(width: geo.size.width * progressFraction, height: 3)
+                                .animation(.easeInOut(duration: 0.3), value: progressFraction)
+                        }
+                    }
+                    .frame(height: 3)
+                }
+
+                // Question header
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("SORU · \(question.groupName.uppercased())")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(Color.dsMuted)
+                    Text(question.text)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Color.dsDeep)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
 
                 if alreadyRanked {
                     alreadyRankedView
@@ -148,14 +211,7 @@ struct SharedRankingContainerView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                if viewModel.phase != .complete {
-                    Button("Çık") { showQuitAlert = true }
-                        .foregroundStyle(.red)
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .alert("Çıkmak istediğine emin misin?", isPresented: $showQuitAlert) {
             Button("Çık", role: .destructive) { dismiss() }
             Button("Devam Et", role: .cancel) { }
@@ -163,10 +219,23 @@ struct SharedRankingContainerView: View {
             Text("Sıralaman kaybolacak.")
         }
         .task {
-            let rankings = (try? await APIService.shared.getRankings(questionId: question.id)) ?? []
-            let me = APIService.shared.username
-            if rankings.contains(where: { $0.participantName == me || $0.participantName == APIService.shared.currentUser?.displayName }) {
+            if question.userAttemptCount >= question.maxAttempts {
                 alreadyRanked = true
+            } else {
+                // Double-check from server
+                let rankings = (try? await APIService.shared.getRankings(questionId: question.id.value)) ?? []
+                let me = APIService.shared.username
+                let myCount = rankings.filter { $0.participantName == me || $0.participantName == APIService.shared.currentUser?.displayName }.count
+                if myCount >= question.maxAttempts {
+                    alreadyRanked = true
+                }
+            }
+        }
+        .onChange(of: submitError) {
+            if submitError != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    submitError = nil
+                }
             }
         }
         .sheet(isPresented: $showResults) {
@@ -181,26 +250,42 @@ struct SharedRankingContainerView: View {
         }
     }
 
+    private func submitAndThen(_ action: @escaping () -> Void) async {
+        if !didSave {
+            do {
+                try await viewModel.submitToServer()
+                didSave = true
+                action()
+            } catch {
+                submitError = "Gönderilemedi, tekrar dene."
+            }
+        } else {
+            action()
+        }
+    }
+
     private var alreadyRankedView: some View {
         VStack(spacing: 24) {
             Spacer()
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 60))
-                .foregroundStyle(.green.gradient)
+                .foregroundStyle(Color.dsAccent)
             Text("Zaten sıraladın!")
-                .font(.title2)
-                .fontWeight(.bold)
-            Text("Bu soruyu daha önce cevapladın.")
-                .foregroundStyle(.secondary)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Color.dsDeep)
+            Text(question.maxAttempts > 1
+                 ? "Bu soruyu \(question.userAttemptCount)/\(question.maxAttempts) kez cevapladın."
+                 : "Bu soruyu daha önce cevapladın.")
+                .foregroundStyle(Color.dsMuted)
 
             Button {
                 showResults = true
             } label: {
                 Text("Sonuçları Gör")
-                    .fontWeight(.semibold)
+                    .font(.system(size: 17, weight: .semibold))
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.green.gradient, in: RoundedRectangle(cornerRadius: 14))
+                    .padding(.vertical, 16)
+                    .background(Color.dsDeep, in: RoundedRectangle(cornerRadius: 14))
                     .foregroundStyle(.white)
             }
             .padding(.horizontal, 32)
@@ -209,11 +294,11 @@ struct SharedRankingContainerView: View {
                 if let popToRoot { popToRoot() } else { dismiss() }
             } label: {
                 Text("Geri Dön")
-                    .fontWeight(.medium)
+                    .font(.system(size: 17, weight: .medium))
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.gray.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
-                    .foregroundStyle(.primary)
+                    .padding(.vertical, 16)
+                    .background(Color.dsSurfaceDim, in: RoundedRectangle(cornerRadius: 14))
+                    .foregroundStyle(Color.dsDeep)
             }
             .padding(.horizontal, 32)
 
@@ -225,27 +310,39 @@ struct SharedRankingContainerView: View {
         VStack(spacing: 32) {
             Spacer()
             VStack(spacing: 16) {
-                Image(systemName: "hand.tap.fill")
+                SiralalaMarkView(size: 60, color: .dsAccent)
 
-                    .font(.system(size: 60))
-                    .foregroundStyle(.orange.gradient)
                 Text("Hazır mısın?")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.dsDeep)
                 Text("\(viewModel.rankCount) öğeyi sıralayacaksın.\nHer öğe tek tek gelecek ve\nyerleştirdikten sonra değiştiremezsin!")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.dsMuted)
                     .multilineTextAlignment(.center)
+
+                if question.maxAttempts > 1 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("\(question.maxAttempts - question.userAttemptCount) cevaplama hakkın kaldı")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.dsAccent)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule().fill(Color.dsAccentSoft)
+                    )
+                }
             }
             Button {
                 viewModel.startRanking()
             } label: {
                 Text("Başla")
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(.system(size: 19, weight: .bold))
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.orange.gradient, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.vertical, 16)
+                    .background(Color.dsDeep, in: RoundedRectangle(cornerRadius: 16))
                     .foregroundStyle(.white)
             }
             .padding(.horizontal, 48)
@@ -258,78 +355,87 @@ struct SharedRankingContainerView: View {
             VStack(spacing: 24) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 70))
-                    .foregroundStyle(.green.gradient)
+                    .foregroundStyle(Color.dsAccent)
 
                 Text("Tamamlandı!")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.dsDeep)
 
                 VStack(spacing: 8) {
                     ForEach(1...viewModel.rankCount, id: \.self) { rank in
                         if let item = viewModel.placements[rank] {
                             HStack(spacing: 12) {
-                                Text("#\(rank)")
-                                    .font(.headline)
-                                    .foregroundStyle(.orange)
-                                    .frame(width: 40)
-                                ZStack {
-                                    Circle()
-                                        .fill(.orange.opacity(0.15))
+                                RankChip(number: rank, style: rank <= 3 ? .accent : .soft)
+                                if let img = item.uiImage {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .scaledToFill()
                                         .frame(width: 36, height: 36)
-                                    Text(item.name.prefix(1).uppercased())
-                                        .font(.subheadline)
-                                        .fontWeight(.bold)
-                                        .foregroundStyle(.orange)
+                                        .clipShape(Circle())
+                                } else {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.dsAccentSoft)
+                                            .frame(width: 36, height: 36)
+                                        Text(item.name.prefix(1).uppercased())
+                                            .font(.subheadline)
+                                            .fontWeight(.bold)
+                                            .foregroundStyle(Color.dsAccent)
+                                    }
                                 }
                                 Text(item.name)
                                     .font(.body)
+                                    .foregroundStyle(Color.dsDeep)
                                 Spacer()
                             }
-                            .padding(.horizontal)
-                            .padding(.vertical, 6)
-                            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.dsSurface, in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
                 }
                 .padding(.horizontal, 24)
 
-                Button {
-                    Task {
-                        if !didSave {
-                            didSave = true
-                            try? await viewModel.submitToServer()
-                        }
-                        showResults = true
+                if let submitError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13))
+                        Text(submitError)
+                            .font(.system(size: 14))
                     }
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 32)
+                }
+
+                Button {
+                    Task { await submitAndThen { showResults = true } }
                 } label: {
                     Text("Sonuçları Gör")
-                        .fontWeight(.semibold)
+                        .font(.system(size: 17, weight: .semibold))
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.green.gradient, in: RoundedRectangle(cornerRadius: 14))
+                        .padding(.vertical, 16)
+                        .background(Color.dsDeep, in: RoundedRectangle(cornerRadius: 14))
                         .foregroundStyle(.white)
                 }
                 .padding(.horizontal, 32)
 
                 Button {
                     Task {
-                        if !didSave {
-                            didSave = true
-                            try? await viewModel.submitToServer()
-                        }
-                        if let popToRoot {
-                            popToRoot()
-                        } else {
-                            dismiss()
+                        await submitAndThen {
+                            if let popToRoot {
+                                popToRoot()
+                            } else {
+                                dismiss()
+                            }
                         }
                     }
                 } label: {
                     Text("Ana Sayfaya Dön")
-                        .fontWeight(.medium)
+                        .font(.system(size: 17, weight: .medium))
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.gray.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
-                        .foregroundStyle(.primary)
+                        .padding(.vertical, 16)
+                        .background(Color.dsSurfaceDim, in: RoundedRectangle(cornerRadius: 14))
+                        .foregroundStyle(Color.dsDeep)
                 }
                 .padding(.horizontal, 32)
             }
@@ -371,50 +477,80 @@ struct SharedRankingContainerView: View {
                 VStack {
                     Spacer()
                     if let item = viewModel.currentItem, viewModel.showCard {
-                        SharedItemCard(item: item, isDragging: viewModel.phase == .placing)
-                            .offset(viewModel.cardOffset)
-                            .scaleEffect(viewModel.cardScale)
-                            .gesture(
-                                DragGesture(coordinateSpace: .named("sharedRankingArea"))
-                                    .onChanged { value in
-                                        guard viewModel.phase == .placing else { return }
-                                        viewModel.cardOffset = value.translation
-                                        viewModel.cardScale = 0.85
-                                        let cardCenter = CGPoint(
-                                            x: geo.size.width * 0.725 + value.translation.width,
-                                            y: geo.size.height * 0.5 + value.translation.height
-                                        )
-                                        viewModel.highlightedSlot = nil
-                                        for (rank, frame) in slotFrames {
-                                            if frame.contains(cardCenter) && !viewModel.isSlotOccupied(rank) {
-                                                viewModel.highlightedSlot = rank
-                                                break
-                                            }
+                        ZStack {
+                            // Ghost cards behind
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.dsSurfaceDim.opacity(0.5))
+                                .frame(width: 140, height: 180)
+                                .rotationEffect(.degrees(6))
+                                .offset(x: 8, y: 4)
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.dsSurfaceDim.opacity(0.3))
+                                .frame(width: 140, height: 180)
+                                .rotationEffect(.degrees(-4))
+                                .offset(x: -6, y: 6)
+
+                            SharedItemCard(item: item, isDragging: viewModel.phase == .placing)
+                                .rotationEffect(.degrees(-2))
+                        }
+                        .offset(viewModel.cardOffset)
+                        .scaleEffect(viewModel.cardScale)
+                        .gesture(
+                            DragGesture(coordinateSpace: .named("sharedRankingArea"))
+                                .onChanged { value in
+                                    guard viewModel.phase == .placing else { return }
+                                    viewModel.cardOffset = value.translation
+                                    viewModel.cardScale = 0.85
+                                    let cardCenter = CGPoint(
+                                        x: geo.size.width * 0.725 + value.translation.width,
+                                        y: geo.size.height * 0.5 + value.translation.height
+                                    )
+                                    viewModel.highlightedSlot = nil
+                                    for (rank, frame) in slotFrames {
+                                        if frame.contains(cardCenter) && !viewModel.isSlotOccupied(rank) {
+                                            viewModel.highlightedSlot = rank
+                                            break
                                         }
                                     }
-                                    .onEnded { value in
-                                        guard viewModel.phase == .placing else { return }
-                                        if let slot = viewModel.highlightedSlot {
-                                            viewModel.placeItem(atRank: slot)
-                                        }
-                                        withAnimation(.spring(response: 0.3)) {
-                                            viewModel.cardOffset = .zero
-                                            viewModel.cardScale = 1.0
-                                        }
-                                        viewModel.highlightedSlot = nil
+                                }
+                                .onEnded { value in
+                                    guard viewModel.phase == .placing else { return }
+                                    if let slot = viewModel.highlightedSlot {
+                                        viewModel.placeItem(atRank: slot)
                                     }
-                            )
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.5).combined(with: .opacity),
-                                removal: .scale(scale: 0.3).combined(with: .opacity)
-                            ))
+                                    withAnimation(.spring(response: 0.3)) {
+                                        viewModel.cardOffset = .zero
+                                        viewModel.cardScale = 1.0
+                                    }
+                                    viewModel.highlightedSlot = nil
+                                }
+                        )
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.5).combined(with: .opacity),
+                            removal: .scale(scale: 0.3).combined(with: .opacity)
+                        ))
                     }
                     Spacer()
-                    Text("Sürükle veya\nslota dokun")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 20)
+
+                    // Bottom floating card label
+                    if let item = viewModel.currentItem, viewModel.showCard {
+                        VStack(spacing: 8) {
+                            Text("ŞU ANKİ ÖĞE")
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(1)
+                                .foregroundStyle(Color.dsMuted)
+                            Text(item.name)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.dsDeep)
+                        }
+                        .padding(.bottom, 16)
+                    } else {
+                        Text("Sürükle veya\nslota dokun")
+                            .font(.caption)
+                            .foregroundStyle(Color.dsMuted)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 20)
+                    }
                 }
                 .frame(width: geo.size.width * 0.45)
             }
@@ -434,14 +570,7 @@ struct SharedSlotView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.headline)
-                .fontWeight(.bold)
-                .foregroundStyle(isOccupied ? .white : .orange)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle().fill(isOccupied ? AnyShapeStyle(Color.green.gradient) : AnyShapeStyle(Color.orange.opacity(0.15)))
-                )
+            RankChip(number: rank, style: isOccupied ? .accent : .soft)
 
             if let item = item {
                 HStack(spacing: 8) {
@@ -455,16 +584,25 @@ struct SharedSlotView: View {
                     Text(item.name)
                         .font(.subheadline)
                         .fontWeight(.medium)
+                        .foregroundStyle(Color.dsDeep)
                         .lineLimit(1)
                 }
                 .transition(.scale.combined(with: .opacity))
             } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(
-                        isHighlighted ? .orange : .gray.opacity(0.3),
-                        style: StrokeStyle(lineWidth: isHighlighted ? 2 : 1, dash: [6])
-                    )
-                    .frame(height: 32)
+                if isHighlighted {
+                    Text("BURAYA BIRAK")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(Color.dsAccent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 32)
+                } else {
+                    Text("—")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.dsUltraMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 32)
+                }
             }
             Spacer()
         }
@@ -473,14 +611,19 @@ struct SharedSlotView: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(
-                    isHighlighted ? .orange.opacity(0.15) :
-                    isOccupied ? .green.opacity(0.08) :
-                    Color(.secondarySystemGroupedBackground)
+                    isHighlighted ? Color.dsAccentSoft :
+                    isOccupied ? Color.dsSurface :
+                    Color.dsSurface
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isHighlighted ? .orange : .clear, lineWidth: 2)
+                .strokeBorder(
+                    isHighlighted ? Color.dsAccent :
+                    Color.dsHairline,
+                    style: isHighlighted ? StrokeStyle(lineWidth: 2, dash: [6]) : StrokeStyle(lineWidth: 1),
+                    antialiased: true
+                )
         )
         .animation(.easeInOut(duration: 0.2), value: isHighlighted)
         .animation(.spring(response: 0.35), value: isOccupied)
@@ -497,36 +640,37 @@ struct SharedItemCard: View {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 100, height: 100)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.orange.gradient)
-                        .frame(width: 100, height: 100)
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.dsDeep)
+                        .frame(width: 80, height: 80)
                     Text(item.name.prefix(1).uppercased())
-                        .font(.system(size: 40, weight: .bold))
+                        .font(.system(size: 34, weight: .bold))
                         .foregroundStyle(.white)
                 }
             }
             Text(item.name)
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.dsDeep)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
-        .padding(20)
-        .frame(width: 150)
+        .padding(18)
+        .frame(width: 140)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(.background)
+                .fill(Color.dsSurface)
                 .shadow(
-                    color: isDragging ? .orange.opacity(0.3) : .black.opacity(0.1),
+                    color: isDragging ? Color.dsAccent.opacity(0.25) : Color.black.opacity(0.08),
                     radius: isDragging ? 16 : 8, y: isDragging ? 8 : 4
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(.orange.opacity(isDragging ? 0.5 : 0), lineWidth: 2)
+                .strokeBorder(Color.dsHairline, lineWidth: 1)
         )
     }
 }

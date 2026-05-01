@@ -27,9 +27,13 @@ enum QuestionNavigation: Hashable {
 
 struct FeedView: View {
     @State private var pendingQuestions: [APISharedQuestion] = []
-    @State private var completedQuestions: [APISharedQuestion] = []
     @State private var navigationPath = NavigationPath()
-    @State private var isLoading = false
+    @State private var isLoading = true
+    @State private var showGuide = false
+
+    private var username: String {
+        APIService.shared.currentUser?.displayName ?? APIService.shared.username
+    }
 
     func popToRoot() {
         navigationPath = NavigationPath()
@@ -41,45 +45,67 @@ struct FeedView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ScrollView {
-                VStack(spacing: 24) {
-                    if pendingQuestions.isEmpty && completedQuestions.isEmpty && !isLoading {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    HStack {
+                        SiralalaWordmark()
+                        Spacer()
+                        Button { showGuide = true } label: {
+                            Image(systemName: "questionmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.dsDeep)
+                                .frame(width: 36, height: 36)
+                                .background(
+                                    Circle()
+                                        .strokeBorder(Color.dsHairline, lineWidth: 1)
+                                )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+
+                    // Hero greeting
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Merhaba \(username).")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(Color.dsDeep)
+                        if isLoading {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.dsSurfaceDim)
+                                .frame(width: 240, height: 28)
+                        } else {
+                            Text("Bekleyen \(pendingQuestions.count) soru var.")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(Color.dsMuted)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 28)
+                    .padding(.bottom, 28)
+
+                    if isLoading {
+                        VStack(spacing: 16) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(Color.dsSurfaceDim)
+                                    .frame(height: 100)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    } else if pendingQuestions.isEmpty {
                         emptyState
                             .frame(maxWidth: 500)
+                            .frame(maxWidth: .infinity)
                     } else {
-                        if !pendingQuestions.isEmpty {
-                            pendingSection
-                        }
-                        if !completedQuestions.isEmpty {
-                            completedSection
-                        }
+                        pendingSection
+                            .padding(.horizontal, 20)
                     }
                 }
                 .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity)
-                .padding()
             }
             .scrollContentBackground(.hidden)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "trophy.fill")
-                            .font(.title3)
-                            .foregroundStyle(.orange.gradient)
-                        Text("Sıralala")
-                            .font(.title2)
-                            .fontWeight(.black)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.orange, .red.opacity(0.8)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                    }
-                }
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.dsBg.ignoresSafeArea())
             .refreshable { await loadQuestions() }
             .task { await loadQuestions() }
             .onReceive(NotificationCenter.default.publisher(for: .feedNeedsRefresh)) { _ in
@@ -93,81 +119,38 @@ struct FeedView: View {
                     SharedResultsView(question: question, popToRoot: popToRoot)
                 }
             }
+            .sheet(isPresented: $showGuide) {
+                GuideView()
+            }
         }
     }
 
     private func loadQuestions() async {
-        let wasEmpty = pendingQuestions.isEmpty && completedQuestions.isEmpty
-        if wasEmpty { isLoading = true }
-        async let p = APIService.shared.getPendingQuestions()
-        async let c = APIService.shared.getCompletedQuestions()
-        let newPending = (try? await p) ?? []
-        let newCompleted = (try? await c) ?? []
-        pendingQuestions = newPending
-        completedQuestions = newCompleted
+        pendingQuestions = (try? await APIService.shared.getPendingQuestions()) ?? []
         isLoading = false
     }
 
     private var emptyState: some View {
-        VStack(spacing: 20) {
-            Spacer()
-
-            Image(systemName: "trophy.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.orange.gradient)
-
-            VStack(spacing: 8) {
-                Text("Henüz soru yok")
-                    .font(.title3)
-                    .fontWeight(.bold)
-                Text("Havuzlar sekmesinden bir havuz oluştur\nve arkadaş grubuna soru gönder!")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+        EmptyStateView(
+            icon: "tray",
+            title: "Henüz bekleyen soru yok",
+            description: "Bir havuz oluştur, arkadaşlarınla\ngrup kur ve ilk soruyu gönder!"
+        )
     }
 
     private var pendingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Bekleyen Sorular", systemImage: "questionmark.circle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
+            Text("SENİN SIRAN")
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(1)
+                .foregroundStyle(Color.dsAccent)
+                .textCase(.uppercase)
 
             ForEach(pendingQuestions) { question in
                 NavigationLink(value: QuestionNavigation.ranking(question)) {
-                    PendingQuestionCard(question: question)
-                }
-                .buttonStyle(.plain)
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
+                    PendingQuestionCard(question: question, onDismiss: {
                         Task {
-                            try? await APIService.shared.dismissQuestion(id: question.id)
-                            await loadQuestions()
-                        }
-                    } label: {
-                        Label("Gizle", systemImage: "eye.slash")
-                    }
-                    .tint(.gray)
-                }
-            }
-        }
-    }
-
-    private var completedSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Tamamlanan", systemImage: "checkmark.circle.fill")
-                .font(.headline)
-                .foregroundStyle(.green)
-
-            ForEach(completedQuestions) { question in
-                NavigationLink(value: QuestionNavigation.results(question)) {
-                    CompletedQuestionCard(question: question, onDismiss: {
-                        Task {
-                            try? await APIService.shared.dismissQuestion(id: question.id)
+                            try? await APIService.shared.dismissQuestion(id: question.id.value)
                             await loadQuestions()
                         }
                     })
@@ -176,39 +159,162 @@ struct FeedView: View {
             }
         }
     }
+
+}
+
+// MARK: - Questions Tab (Completed)
+
+struct QuestionsView: View {
+    @State private var completedQuestions: [APISharedQuestion] = []
+    @State private var navigationPath = NavigationPath()
+    @State private var isLoading = true
+
+    func popToRoot() {
+        navigationPath = NavigationPath()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NotificationCenter.default.post(name: .feedNeedsRefresh, object: nil)
+        }
+    }
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sorular")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(Color.dsDeep)
+                        Text("Cevapladığın soruların sonuçları")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Color.dsMuted)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 24)
+
+                    if isLoading {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                            .padding(.top, 40)
+                    } else if completedQuestions.isEmpty {
+                        EmptyStateView(
+                            icon: "checkmark.circle",
+                            title: "Henüz cevaplanmış soru yok",
+                            description: "Ana sayfadaki soruları cevapla,\nsonuçları burada gör."
+                        )
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(completedQuestions) { question in
+                                NavigationLink(value: QuestionNavigation.results(question)) {
+                                    CompletedQuestionCard(question: question, onDismiss: {
+                                        Task {
+                                            try? await APIService.shared.dismissQuestion(id: question.id.value)
+                                            await loadData()
+                                        }
+                                    })
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.dsBg.ignoresSafeArea())
+            .refreshable { await loadData() }
+            .task { await loadData() }
+            .onReceive(NotificationCenter.default.publisher(for: .feedNeedsRefresh)) { _ in
+                Task { await loadData() }
+            }
+            .navigationDestination(for: QuestionNavigation.self) { nav in
+                switch nav {
+                case .ranking(let question):
+                    SharedRankingContainerView(question: question, popToRoot: popToRoot)
+                case .results(let question):
+                    SharedResultsView(question: question, popToRoot: popToRoot)
+                }
+            }
+        }
+    }
+
+    private func loadData() async {
+        completedQuestions = (try? await APIService.shared.getCompletedQuestions()) ?? []
+        isLoading = false
+    }
 }
 
 struct PendingQuestionCard: View {
     let question: APISharedQuestion
+    var onDismiss: (() -> Void)? = nil
+    @State private var showDismissAlert = false
+
+    private var remainingAttempts: Int {
+        question.maxAttempts - question.userAttemptCount
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(question.text)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("\(question.poolName) · \(question.groupName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(question.text)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.dsDeep)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 0) {
+                    Text("\(remainingAttempts) hak")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.dsAccent)
+                    Text(" \u{00B7} ")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.dsMuted)
+                    Text("\(question.poolName) \u{00B7} \(question.completionCount) katılım")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.dsMuted)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.orange)
-                    .fontWeight(.semibold)
             }
 
-            HStack {
-                Label("\(question.itemCount) öğe", systemImage: "square.stack")
-                Spacer()
-                Label("\(question.completionCount) katılım", systemImage: "person.2")
+            Spacer(minLength: 0)
+
+            // Play button
+            Image(systemName: "play.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(Circle().fill(Color.dsDeep))
+
+            // Dismiss button
+            if onDismiss != nil {
+                Button {
+                    showDismissAlert = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.dsMuted)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Color.dsSurfaceDim))
+                }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
-        .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+        .padding(14)
+        .padding(.leading, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.dsSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Color.dsHairline, lineWidth: 1)
+                )
+        )
+        .alert("Bu soruyu gizlemek istediğine emin misin?", isPresented: $showDismissAlert) {
+            Button("Gizle", role: .destructive) { onDismiss?() }
+            Button("Vazgeç", role: .cancel) { }
+        } message: {
+            Text("Soru ana sayfandan kaldırılacak.")
+        }
     }
 }
 
@@ -218,48 +324,174 @@ struct CompletedQuestionCard: View {
     @State private var showDismissAlert = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(question.text)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("\(question.poolName) · \(question.groupName)")
+        HStack(spacing: 12) {
+            RankChip(number: 1, style: .accent)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(question.text)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.dsDeep)
+                    .lineLimit(1)
+                Text("Grup kazananı: \(question.poolName) · \(question.completionCount) katılım")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.dsMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if onDismiss != nil {
+                Button {
+                    showDismissAlert = true
+                } label: {
+                    Image(systemName: "eye.slash")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-
-                if onDismiss != nil {
-                    Button {
-                        showDismissAlert = true
-                    } label: {
-                        Image(systemName: "eye.slash")
-                            .font(.subheadline)
-                            .foregroundStyle(.gray)
-                    }
+                        .foregroundStyle(Color.dsUltraMuted)
                 }
             }
 
-            HStack {
-                Label("\(question.completionCount) katılım", systemImage: "person.2.fill")
-                Spacer()
-                Text("Sonuçları gör")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.green)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.dsUltraMuted)
         }
-        .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.dsSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Color.dsHairline, lineWidth: 1)
+                )
+        )
         .alert("Ana sayfadan gizle", isPresented: $showDismissAlert) {
             Button("Gizle", role: .destructive) { onDismiss?() }
             Button("İptal", role: .cancel) { }
         } message: {
             Text("Bu soru ana sayfandan kaldırılacak. Grup detayından hâlâ erişebilirsin.")
         }
+    }
+}
+
+// MARK: - Guide View
+
+struct GuideView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentStep = 0
+
+    private let steps: [(icon: String, title: String, desc: String)] = [
+        ("square.stack", "Havuz Oluştur",
+         "Sıralamak istediğin öğeleri bir havuzda topla.\nÖrneğin: Filmler, Şarkılar, Futbolcular..."),
+        ("person.3.fill", "Grup Kur",
+         "Arkadaş kodunu paylaşarak arkadaşlarını ekle.\nSonra bir grup oluşturup onları davet et."),
+        ("paperplane.fill", "Soru Gönder",
+         "Havuzundan bir soru oluştur ve grubuna gönder.\nKaç öğe sıralansın, kaç hak olsun — sen belirle."),
+        ("hand.draw.fill", "Sırala",
+         "Öğeler tek tek karşına gelir.\nSürükle veya dokun, slotlara yerleştir.\nYerleştirdikten sonra değiştiremezsin!"),
+        ("chart.bar.fill", "Sonuçları Gör",
+         "Herkes sıraladıktan sonra grup ortalamasını,\nen çekişmeli öğeyi ve uyum yüzdesini gör.")
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Top bar
+            HStack {
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.dsMuted)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.dsSurfaceDim))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            Spacer()
+
+            // Content
+            let step = steps[currentStep]
+
+            VStack(spacing: 24) {
+                // Icon
+                Image(systemName: step.icon)
+                    .font(.system(size: 44))
+                    .foregroundStyle(Color.dsAccent)
+                    .frame(width: 90, height: 90)
+                    .background(
+                        Circle().fill(Color.dsAccentSoft)
+                    )
+
+                // Step indicator
+                Text("\(currentStep + 1)/\(steps.count)")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.dsMuted)
+
+                // Title
+                Text(step.title)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(Color.dsDeep)
+
+                // Description
+                Text(step.desc)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.dsMuted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+            }
+            .padding(.horizontal, 32)
+
+            Spacer()
+
+            // Dots
+            HStack(spacing: 8) {
+                ForEach(0..<steps.count, id: \.self) { i in
+                    Circle()
+                        .fill(i == currentStep ? Color.dsDeep : Color.dsHairline)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .padding(.bottom, 24)
+
+            // Buttons
+            HStack(spacing: 12) {
+                if currentStep > 0 {
+                    Button {
+                        withAnimation { currentStep -= 1 }
+                    } label: {
+                        Text("Geri")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Color.dsDeep)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color.dsSurfaceDim)
+                            )
+                    }
+                }
+
+                Button {
+                    if currentStep < steps.count - 1 {
+                        withAnimation { currentStep += 1 }
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Text(currentStep < steps.count - 1 ? "Devam" : "Anladım")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.dsDeep)
+                        )
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 40)
+        }
+        .background(Color.dsBg.ignoresSafeArea())
     }
 }

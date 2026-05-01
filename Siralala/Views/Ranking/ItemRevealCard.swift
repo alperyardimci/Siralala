@@ -15,7 +15,7 @@ struct ItemRevealCard: View {
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(.orange.gradient)
+                        .fill(Color.dsDeep)
                         .frame(width: 100, height: 100)
                     Text(item.name.prefix(1).uppercased())
                         .font(.system(size: 40, weight: .bold))
@@ -25,6 +25,7 @@ struct ItemRevealCard: View {
 
             Text(item.name)
                 .font(.headline)
+                .foregroundStyle(Color.dsDeep)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
@@ -32,16 +33,16 @@ struct ItemRevealCard: View {
         .frame(width: 150)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(.background)
+                .fill(Color.dsSurface)
                 .shadow(
-                    color: isDragging ? .orange.opacity(0.3) : .black.opacity(0.1),
+                    color: isDragging ? Color.dsAccent.opacity(0.25) : .black.opacity(0.08),
                     radius: isDragging ? 16 : 8,
                     y: isDragging ? 8 : 4
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(.orange.opacity(isDragging ? 0.5 : 0), lineWidth: 2)
+                .strokeBorder(Color.dsHairline, lineWidth: 1)
         )
     }
 }

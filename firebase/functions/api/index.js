@@ -164,8 +164,10 @@ app.get("/api/pools/shared", async (req, res) => {
 });
 
 app.get("/api/pools/:poolId/items", async (req, res) => {
-  const snap = await db.collection("shared_pool_items").where("pool_id", "==", req.params.poolId).orderBy("sort_order").get();
-  res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  const snap = await db.collection("shared_pool_items").where("pool_id", "==", req.params.poolId).get();
+  const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  res.json(items);
 });
 
 app.delete("/api/pools/:poolId", async (req, res) => {
@@ -181,11 +183,12 @@ app.delete("/api/pools/:poolId", async (req, res) => {
 
 // --- Questions ---
 app.post("/api/questions", async (req, res) => {
-  const { username, groupId, text, poolName, items, itemCount } = req.body;
+  const { username, groupId, text, poolName, items, itemCount, maxAttempts } = req.body;
   const user = await getUser(username);
   if (!user) return res.status(404).json({ error: "User not found" });
   const count = itemCount || items.length;
-  const ref = await db.collection("shared_questions").add({ group_id: groupId, creator_id: user.id, text, pool_name: poolName, item_count: count, is_active: true, created_at: new Date().toISOString() });
+  const attempts = maxAttempts || 1;
+  const ref = await db.collection("shared_questions").add({ group_id: groupId, creator_id: user.id, text, pool_name: poolName, item_count: count, max_attempts: attempts, is_active: true, created_at: new Date().toISOString() });
   for (let i = 0; i < items.length; i++) {
     const item = items[i]; const n = typeof item === "string" ? item : item.name; const img = typeof item === "string" ? null : (item.imageData || null);
     await db.collection("shared_question_items").add({ question_id: ref.id, name: n, image_data: img, sort_order: i });
@@ -197,15 +200,19 @@ async function getQuestionFull(qDoc, user) {
   const q = qDoc.data();
   const udoc = await db.collection("users").doc(q.creator_id).get();
   const gdoc = await db.collection("groups").doc(q.group_id).get();
-  const itemsSnap = await db.collection("shared_question_items").where("question_id", "==", qDoc.id).orderBy("sort_order").get();
+  const itemsSnap = await db.collection("shared_question_items").where("question_id", "==", qDoc.id).get();
   const rSnap = await db.collection("rankings").where("question_id", "==", qDoc.id).get();
+  const maxAttempts = q.max_attempts || 1;
+  const userAttempts = user ? rSnap.docs.filter(d => d.data().user_id === user.id).length : 0;
   return {
     id: qDoc.id, text: q.text, pool_name: q.pool_name, item_count: q.item_count, creator_id: q.creator_id,
     creator_name: udoc.exists ? udoc.data().display_name : "?",
     group_name: gdoc.exists ? gdoc.data().name : "?",
-    items: itemsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+    items: itemsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
     completion_count: rSnap.size,
-    user_ranked: user ? rSnap.docs.some(d => d.data().user_id === user.id) : false
+    max_attempts: maxAttempts,
+    user_attempt_count: userAttempts,
+    user_ranked: userAttempts >= maxAttempts
   };
 }
 
@@ -215,14 +222,26 @@ app.get("/api/questions/pending", async (req, res) => {
   const gmSnap = await db.collection("group_members").where("user_id", "==", user.id).get();
   const groupIds = [...new Set(gmSnap.docs.map(d => d.data().group_id))];
   const rankedSnap = await db.collection("rankings").where("user_id", "==", user.id).get();
-  const rankedQids = new Set(rankedSnap.docs.map(d => d.data().question_id));
+  // Count attempts per question
+  const attemptCounts = {};
+  for (const d of rankedSnap.docs) {
+    const qid = d.data().question_id;
+    attemptCounts[qid] = (attemptCounts[qid] || 0) + 1;
+  }
   const dismissedSnap = await db.collection("dismissed_questions").where("user_id", "==", user.id).get();
   const dismissedQids = new Set(dismissedSnap.docs.map(d => d.data().question_id));
   const questions = [];
+  const seenQids = new Set();
   for (const gid of groupIds) {
     const qSnap = await db.collection("shared_questions").where("group_id", "==", gid).where("is_active", "==", true).get();
     for (const qDoc of qSnap.docs) {
-      if (rankedQids.has(qDoc.id) || dismissedQids.has(qDoc.id)) continue;
+      if (dismissedQids.has(qDoc.id)) continue;
+      if (seenQids.has(qDoc.id)) continue;
+      seenQids.add(qDoc.id);
+      const qData = qDoc.data();
+      const maxAttempts = qData.max_attempts || 1;
+      const userAttempts = attemptCounts[qDoc.id] || 0;
+      if (userAttempts >= maxAttempts) continue;
       questions.push(await getQuestionFull(qDoc, user));
     }
   }
@@ -236,12 +255,16 @@ app.get("/api/questions/completed", async (req, res) => {
   const dismissedSnap = await db.collection("dismissed_questions").where("user_id", "==", user.id).get();
   const dismissedQids = new Set(dismissedSnap.docs.map(d => d.data().question_id));
   const questions = [];
+  const seenQids = new Set();
   for (const rDoc of rankedSnap.docs) {
     const qid = rDoc.data().question_id;
-    if (dismissedQids.has(qid)) continue;
+    if (dismissedQids.has(qid) || seenQids.has(qid)) continue;
+    seenQids.add(qid);
     const qDoc = await db.collection("shared_questions").doc(qid).get();
     if (!qDoc.exists) continue;
-    questions.push(await getQuestionFull(qDoc, user));
+    const q = await getQuestionFull(qDoc, user);
+    // Only show in completed if all attempts used
+    if (q.user_ranked) questions.push(q);
   }
   res.json(questions);
 });
@@ -278,8 +301,10 @@ app.post("/api/rankings", async (req, res) => {
   const { username, questionId, entries } = req.body;
   const user = await getUser(username);
   if (!user) return res.status(404).json({ error: "User not found" });
-  const existing = await db.collection("rankings").where("question_id", "==", questionId).where("user_id", "==", user.id).limit(1).get();
-  if (!existing.empty) return res.status(400).json({ error: "Already ranked" });
+  const qDoc = await db.collection("shared_questions").doc(questionId).get();
+  const maxAttempts = qDoc.exists ? (qDoc.data().max_attempts || 1) : 1;
+  const existing = await db.collection("rankings").where("question_id", "==", questionId).where("user_id", "==", user.id).get();
+  if (existing.size >= maxAttempts) return res.status(400).json({ error: "Max attempts reached" });
   const ref = await db.collection("rankings").add({ question_id: questionId, user_id: user.id, completed_at: new Date().toISOString() });
   for (const e of entries) { await db.collection("ranking_entries").add({ ranking_id: ref.id, item_id: e.itemId, rank: e.rank }); }
   res.json({ id: ref.id });
@@ -291,9 +316,10 @@ app.get("/api/rankings", async (req, res) => {
   for (const rDoc of rSnap.docs) {
     const r = rDoc.data();
     const udoc = await db.collection("users").doc(r.user_id).get();
-    const eSnap = await db.collection("ranking_entries").where("ranking_id", "==", rDoc.id).orderBy("rank").get();
+    const eSnap = await db.collection("ranking_entries").where("ranking_id", "==", rDoc.id).get();
     const entries = [];
     for (const eDoc of eSnap.docs) { const e = eDoc.data(); const itemDoc = await db.collection("shared_question_items").doc(e.item_id).get(); const id2 = itemDoc.exists ? itemDoc.data() : {}; entries.push({ rank: e.rank, item_id: e.item_id, item_name: id2.name || "?", item_image: id2.image_data || null }); }
+    entries.sort((a, b) => a.rank - b.rank);
     rankings.push({ id: rDoc.id, participant_name: udoc.exists ? udoc.data().display_name : "?", completed_at: r.completed_at, entries });
   }
   res.json(rankings);

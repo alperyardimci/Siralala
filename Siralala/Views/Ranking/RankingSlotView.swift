@@ -8,15 +8,7 @@ struct RankingSlotView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.headline)
-                .fontWeight(.bold)
-                .foregroundStyle(isOccupied ? .white : .orange)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(isOccupied ? AnyShapeStyle(Color.green.gradient) : AnyShapeStyle(Color.orange.opacity(0.15)))
-                )
+            RankChip(number: rank, style: isOccupied ? .accent : .soft)
 
             if let item = item {
                 HStack(spacing: 8) {
@@ -30,16 +22,25 @@ struct RankingSlotView: View {
                     Text(item.name)
                         .font(.subheadline)
                         .fontWeight(.medium)
+                        .foregroundStyle(Color.dsDeep)
                         .lineLimit(1)
                 }
                 .transition(.scale.combined(with: .opacity))
             } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(
-                        isHighlighted ? .orange : .gray.opacity(0.3),
-                        style: StrokeStyle(lineWidth: isHighlighted ? 2 : 1, dash: [6])
-                    )
-                    .frame(height: 32)
+                if isHighlighted {
+                    Text("BURAYA BIRAK")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(Color.dsAccent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 32)
+                } else {
+                    Text("—")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.dsUltraMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 32)
+                }
             }
 
             Spacer()
@@ -49,16 +50,16 @@ struct RankingSlotView: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(
-                    isHighlighted ? .orange.opacity(0.15) :
-                    isOccupied ? .green.opacity(0.08) :
-                    Color(.secondarySystemGroupedBackground)
+                    isHighlighted ? Color.dsAccentSoft :
+                    Color.dsSurface
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(
-                    isHighlighted ? .orange : .clear,
-                    lineWidth: 2
+                    isHighlighted ? Color.dsAccent : Color.dsHairline,
+                    style: isHighlighted ? StrokeStyle(lineWidth: 2, dash: [6]) : StrokeStyle(lineWidth: 1),
+                    antialiased: true
                 )
         )
         .animation(.easeInOut(duration: 0.2), value: isHighlighted)
